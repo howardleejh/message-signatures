@@ -1,32 +1,22 @@
 .App {
   text-align: center;
-  display: grid;
-  place-items: center;
 }
 
 ul {
-  list-style: none;
-  padding: 0;
+  list-style-type: none;
   margin: 0;
+  padding: 0;
 }
 
 ul li {
-  padding-top: 1em;
+  margin: 1em 0;
 }
 
 ul li button {
-  width: 15em;
-  min-height: 3.5em;
+  width: 12em;
+  min-height: 2.5em;
 }
-ul li input {
-  width: 30em;
-  height: 2.5em;
-}
-.signature {
-  width: 50em;
-}
-
-.signature h3 {
-  overflow: scroll;
-  padding: 1em;
+#fn-input {
+  width: 20em;
+  min-height: 2em;
 }

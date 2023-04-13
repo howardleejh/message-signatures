@@ -1,151 +1,150 @@
 import { useState } from 'react'
-import { ethers, toUtf8Bytes } from 'ethers'
+import verifierAbi from './Abi/verifier.json'
+import { ethers } from 'ethers'
 import './App.css'
 
 const ethereum = window.ethereum
 const provider = new ethers.BrowserProvider(ethereum)
 
+const CONTRACT_ADDR = `0x23471fd730142cbcedd3a46fe558231bf7023ee9`
+
 function App() {
-  const [wallet, setWallet] = useState(null)
-  const [input, setInput] = useState(null)
-  const [hash, setHash] = useState(null)
-  const [signed, setSigned] = useState(null)
-  const [altSigned, setAltSigned] = useState(null)
-  const [messageResults, setMessageResults] = useState(null)
+  const [user, setUser] = useState(null)
+  const [contract, setContract] = useState(null)
+  const [input, setInput] = useState('')
+  const [receipt, setReceipt] = useState(null)
+  const [status, setStatus] = useState(null)
+  const [signedTx, setSignedTx] = useState(null)
 
   const getUser = async () => {
-    try {
-      const wallet = await provider.getSigner()
-      setWallet(wallet)
-    } catch (err) {
-      console.log(err)
-    }
+    const user = await provider.getSigner()
+    setUser(user.address)
     return
   }
 
-  const onInputChange = (event) => {
-    event.preventDefault()
-    setInput(event.target.value)
+  const connectContract = async () => {
+    const instance = new ethers.Contract(CONTRACT_ADDR, verifierAbi)
+    setContract(instance)
+    return
   }
 
-  const hashMessage = async () => {
-    if (input === null || input.trim().length === 0) {
+  const inputChangeHandler = (event) => {
+    setInput(event.target.value)
+    return
+  }
+
+  const submitHandler = async (event) => {
+    event.preventDefault()
+    const storedInput = input.trim()
+    if (storedInput.length === 0) {
       return console.log('no input')
     }
-    const hash = ethers.keccak256(toUtf8Bytes(input))
+    if (user === null || contract === null) {
+      return console.log('no signer or contract')
+    }
+    const signer = await provider.getSigner()
+    const connected = await contract.connect(signer)
+    const tx = await connected.writeSomething(storedInput)
+    await tx.wait()
+    await getStatus()
+    setReceipt(tx.hash)
 
-    setHash({
-      message: input,
-      hash: hash,
-    })
     return
   }
 
-  // uses ethersJS to sign message
-  // requires ethers.getBytes() instead of directly using the hashMessage to properly verify signature
-  // hashMessage > keccak256(toUtfBytes()) > getBytes() === "personal_sign" method for metamask
-  const signMessage = async () => {
-    const messageHash = ethers.getBytes(hash.hash)
-    const signer = await provider.getSigner()
-    try {
-      const signed = await signer.signMessage(messageHash)
-      setSigned(signed)
-    } catch (err) {
-      console.log(err)
+  const getStatus = async () => {
+    const connected = contract.connect(provider)
+    const status = await connected.store()
+    const { nonce, data, prevData } = status
+    const statusData = {
+      nonce: nonce.toString(),
+      data: data,
+      prevData: prevData,
     }
-  }
-  // uses Metamask ethereum.request({method: 'personal_sign}) to sign message
-  const signMessageAlternately = async () => {
-    const messageHash = hash.hash
-    const signer = await provider.getSigner()
-    try {
-      const signed = await ethereum.request({
-        method: 'personal_sign',
-        params: [signer?.address, messageHash],
-      })
-      setAltSigned(signed)
-    } catch (err) {
-      console.log(err)
-    }
+    setStatus(statusData)
   }
 
-  const getSigner = async () => {
-    try {
-      const results = await ethers.verifyMessage(
-        ethers.getBytes(hash.hash),
-        signed
-      )
-      setMessageResults(results)
-    } catch (err) {
-      console.log(err)
-    }
+  const getTxWithSig = async () => {
+    const storedInput = input.trim()
+    const signer = await provider.getSigner()
+    const connected = await contract.connect(signer)
+    // this is to populate tx and get an object with "to" and "data"
+    const tx = await connected.writeSomething.populateTransaction(storedInput)
+    console.log(tx)
+    // this is to sign tx as message
+    const signed = await signer.signMessage(tx.data)
+
+    setSignedTx(signed)
+  }
+
+  const delegateTxWithSig = async () => {
+    const tx = ethers.Transaction.from(signedTx).serialized
+    console.log(tx)
   }
 
   return (
     <div className='App'>
-      <ul id='status'>
+      <h3>Attached Contract: {contract?.target}</h3>
+      <h3>User: {user}</h3>
+      <h4 id='status'>
+        <ul>
+          <li>
+            <span> Nonce: {status?.nonce}</span>
+          </li>
+          <li>
+            <span> Current: {status?.data}</span>
+          </li>
+          <li>
+            <span> Previous: {status?.prevData}</span>
+          </li>
+        </ul>
+      </h4>
+      <ul>
         <li>
-          <h3>wallet: {wallet?.address}</h3>
+          <button onClick={connectContract}>Connect Contract</button>
         </li>
         <li>
-          <h3>message: {hash?.message}</h3>
-        </li>
-        <li>
-          <h3>hash: {hash?.hash}</h3>
-        </li>
-        <li>
-          <input onChange={onInputChange} placeholder='message' />
-        </li>
-        <li>
-          <button onClick={hashMessage}>Hash Message</button>
+          <button onClick={getStatus}>Get Contract Status</button>
         </li>
         <li>
           <button onClick={getUser}>Connect Wallet</button>
         </li>
         <li>
-          <button onClick={signMessage}>Sign Message</button>
+          <form id='contract-fn' onSubmit={submitHandler}>
+            <label>Write Something: </label>
+            <input
+              id='fn-input'
+              value={input}
+              onChange={inputChangeHandler}
+              type='text'
+            />
+            <button type='submit'>Execute</button>
+          </form>
         </li>
-        {signed ? (
-          <li className='signature'>
-            <h3 style={{ color: altSigned === signed ? 'green' : 'red' }}>
-              Signature: {signed}
-            </h3>
+        {receipt !== null ? (
+          <li>
+            <h4>
+              Receipt:{' '}
+              <a
+                href={`https://sepolia.etherscan.io/tx/${receipt}`}
+                target='_blank'
+                rel='noreferrer'
+              >
+                {receipt}
+              </a>
+            </h4>
           </li>
         ) : (
           <></>
         )}
         <li>
-          <button onClick={signMessageAlternately}>
-            Sign Message Alternately
-          </button>
-        </li>
-        {altSigned ? (
-          <li className='signature'>
-            <h3 style={{ color: altSigned === signed ? 'green' : 'red' }}>
-              Signature: {altSigned}
-            </h3>
-          </li>
-        ) : (
-          <></>
-        )}
-        {signed !== null && altSigned !== null ? (
-          signed === altSigned ? (
-            <strong style={{ color: 'green' }}>
-              EthersJS & Metamask signature matches!
-            </strong>
-          ) : (
-            <strong style={{ color: 'red' }}>
-              Ethers & Metamask signature does not match!
-            </strong>
-          )
-        ) : (
-          <></>
-        )}
-        <li>
-          <button onClick={getSigner}>Get Signer</button>
+          <button onClick={getTxWithSig}>Save Signature</button>
         </li>
         <li>
-          <h4>Signer: {messageResults}</h4>
+          <h5>Signature: {signedTx}</h5>
+        </li>
+        <li>
+          <button onClick={delegateTxWithSig}>Send Signature</button>
         </li>
       </ul>
     </div>
